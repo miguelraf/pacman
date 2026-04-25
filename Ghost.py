@@ -51,6 +51,7 @@ class Ghost:
         self.speed = 1
         self.x_delta = 0
         self.y_delta = 0
+        self.range = 10
 
         self.directions = {
         0: (0, 1),   # abajo
@@ -131,7 +132,6 @@ class Ghost:
                 else:
                     weights.append(1.0)
 
-            # Safety check
             if options:
                 self.dir_id = random.choices(options, weights=weights, k=1)[0]
 
@@ -141,9 +141,18 @@ class Ghost:
         corner = self.MC[idx_2][idx_1]
 
         if corner >= 0:
-            next = self.astar(pacmanXY, 3)
+            if self.dir_id < 2:
+                reverse = self.dir_id + 2
+            else:
+                reverse = self.dir_id - 2
+
+            xo, yo = self.directions[reverse]
+            next = self.astar(pacmanXY, 3, Ghost.Node(idx_1, idx_2, corner, Ghost.Node(idx_1 + xo, idx_2 + yo, self.MC[idx_2 + yo][idx_1 + xo], None)))
+            # print(f"next: {next.corner}")
             dv = (next.idx_x - idx_1, next.idx_y - idx_2)
+            # print(dv)
             self.dir_id = self.dir_ids[dv]
+            # print(self.directions[self.dir_id])
 
     def update_delta(self):
         dx, dy = self.directions[self.dir_id]
@@ -158,128 +167,110 @@ class Ghost:
     def get_neighbors(self, node): # TODO: Change idx_corner to neighbor type
         dirs = self.corners[node.corner]
 
-        # print(dirs)
-
         neighbors = []
 
         for d in dirs:
             xo, yo = self.directions[d]
+            if node.corner != 27 and node.corner != 26 and Ghost.Node(node.idx_x + xo, node.idx_y + yo, self.MC[node.idx_y + yo][node.idx_x + xo], None) == node.parent:
+                continue
             neighbors.append(Ghost.Node(node.idx_x + xo, node.idx_y + yo, self.MC[node.idx_y + yo][node.idx_x + xo], node))
 
         return neighbors
     
-    def ponder_neighbor(self, parent, neighbor, pcx, pcy):
-        parent_coord_x = self.xMC[parent.idx_x]
-        parent_coord_y = self.yMC[parent.idx_y]
-        neighbor_coord_x = self.xMC[neighbor.idx_x]
-        neighbor_coord_y = self.yMC[neighbor.idx_y]
+    def ponder_neighbors(self, parent, neighbors, pcx, pcy):
+        for neighbor in neighbors:
+            parent_coord_x = self.xMC[parent.idx_x]
+            parent_coord_y = self.yMC[parent.idx_y]
+            neighbor_coord_x = self.xMC[neighbor.idx_x]
+            neighbor_coord_y = self.yMC[neighbor.idx_y]
 
-        neighbor.g = parent.g + abs(neighbor_coord_x - parent_coord_x) + abs(neighbor_coord_y - parent_coord_y)
-        neighbor.h = abs(neighbor_coord_x - pcx) + abs(neighbor_coord_y - pcy)
-        neighbor.f = neighbor.g + neighbor.h
+            neighbor.g = parent.g + abs(neighbor_coord_x - parent_coord_x) + abs(neighbor_coord_y - parent_coord_y)
+            neighbor.h = abs(neighbor_coord_x - pcx) + abs(neighbor_coord_y - pcy)
+            neighbor.f = neighbor.g + neighbor.h
 
-    def update_open(self, neighbors, open_heap: list, closed: dict):
-        open_dict = {}
-
-        for i, node in enumerate(open_heap):
-            open_dict[(node.idx_x, node.idx_y)] = (node, i)
-
-        for n in neighbors:
-            key = (n.idx_x, n.idx_y)
-
-            if key in closed:
-                if n.g < closed[key].g:
-                    closed.pop(key)
-                    heapq.heappush(open_heap, n)
-                continue
-
-            if key in open_dict:
-                old_node, old_index = open_dict[key]
-
-                if n.g < old_node.g:
-                    open_heap[old_index].g = n.g
-                    open_heap[old_index].h = n.h
-                    open_heap[old_index].f = n.f
-
-                    heapq.heapify(open_heap)
-                continue
-
-            heapq.heappush(open_heap, n)
-                    
-
-    def evaluate_node(self, pcx, pcy, open_heap: list, closed: dict):
+    def evaluate_node(self, pcx, pcy, open_heap: list, closed: list):
         current = heapq.heappop(open_heap)
         neighbors = self.get_neighbors(current)
+        # str = f"Neighbors of current: {current.corner} -> "
+        # for n in neighbors:
+        #     str = str + f"{n.corner} | "
+
+        # print(str)
+        self.ponder_neighbors(current, neighbors, pcx, pcy)
         for n in neighbors:
-            self.ponder_neighbor(current, n, pcx, pcy)
-        self.update_open(neighbors, open_heap, closed)
-        closed = closed | {(current.idx_x, current.idx_y): current}
+            # if n in closed or n in open_heap:
+            #     continue
+            heapq.heappush(open_heap, n)
 
-    def get_next(self, node, n0):
-        recall = node
-        print(f"{n0.corner} -> Reconstruct:")
-        print(recall.corner)
-        while recall.parent != n0:
-            recall = recall.parent
-            print(recall.corner)
-        return recall
-        
+        dist = 1000
+        if open_heap:
+            p = open_heap[0]
+            best_coord_x = self.xMC[p.idx_x]
+            best_coord_y = self.yMC[p.idx_y]
 
+            dist = math.sqrt(math.pow((pcx - best_coord_x), 2) + math.pow((pcy - best_coord_y), 2))
 
-    def astar(self, pcxy, n):
-        pcx, pcy = pcxy
-        idx_1 = self.XPxToMC[int(self.x)]
-        idx_2 = self.YPxToMC[int(self.y)]
-        corner = self.MC[idx_2][idx_1]
+        closed.append(current)
 
-        n0 = Ghost.Node(idx_1, idx_2, corner, None)
+        if dist < self.range:
+            return True
+        else:
+            return False
 
+    def astar(self, pacmanXY, depth, n0):
+        pcx, pcy = pacmanXY
         open_heap = [n0]
-        closed = {}
+        closed = []
 
-        while n > 0 and open_heap:
-            self.evaluate_node(pcx, pcy, open_heap, closed)
-            n -= 1
+        while depth > 0 and open_heap:
+            if self.evaluate_node(pcx, pcy, open_heap, closed):
+                break
+            depth -= 1
         
+        # print("Open:")
+        # for n in open_heap:
+        #     print(f"{n.corner} - {n.idx_x} - {n.idx_y}")
         # print("Closed:")
-        # print(closed)
+        # for n in closed:
+        #     print(f"{n.corner} - {n.idx_x} - {n.idx_y}")
 
         return self.get_next(heapq.heappop(open_heap), n0)
-        
 
-    def test_neighbors(self):
+    def get_next(self, node, n0):
+
+        recall = node
+        # print(f"{n0.corner} -> Reconstruct:")
+        # print(recall.corner)
+        while recall.parent != n0:
+            recall = recall.parent
+            # print(recall.corner)
+        # print("-----")
+        return recall
+    
+    def test_astar(self, pacmanXY):
         idx_1 = self.XPxToMC[int(self.x)]
         idx_2 = self.YPxToMC[int(self.y)]
         corner = self.MC[idx_2][idx_1]
 
         if corner >= 0:
-            node = Ghost.Node(idx_1, idx_2, corner)
-            neighbors = self.get_neighbors(node)
-            str = f"Parent: {corner} Childs: "
-            for n in neighbors:
-                str += f"{n.corner} | "
-            print(str)
+            if self.dir_id < 2:
+                reverse = self.dir_id + 2
+            else:
+                reverse = self.dir_id - 2
 
-
-    def test_neighbors2(self, pacmanXY):
-        idx_1 = self.XPxToMC[int(self.x)]
-        idx_2 = self.YPxToMC[int(self.y)]
-        corner = self.MC[idx_2][idx_1]
-
-        if corner >= 0:
-            next = self.astar(pacmanXY, 3)
-            # print(next.corner)
-
+            xo, yo = self.directions[reverse]
+            next = self.astar(pacmanXY, 3, Ghost.Node(idx_1, idx_2, corner, Ghost.Node(idx_1 + xo, idx_2 + yo, self.MC[idx_2 + yo][idx_1 + xo], None)))
+            # print(f"next: {next.corner}")
 
     def update(self):
-        self.test_neighbors()
         self.update_dir_random()
         self.update_delta()
         self.update_move()
 
     def update2(self, pacmanXY):
-        self.test_neighbors2(pacmanXY)
+        # self.test_astar(pacmanXY)
         self.update_dir_seeker(pacmanXY)
+        # self.update_dir_random()
         self.update_delta()
         self.update_move()
         
