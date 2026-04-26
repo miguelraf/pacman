@@ -65,7 +65,7 @@ class Ghost:
                 return NotImplemented
             return self.f >= other.f
         
-    def __init__(self, mapa, mc, x_mc, y_mc, xmc, ymc, xini, yini, tipo = "RAND"): #xini y yini deben de ser coordenadas de un elemento >= 0 del MC
+    def __init__(self, mapa, mc, x_mc, y_mc, xmc, ymc, xini, yini, tipo): #xini y yini deben de ser coordenadas de un elemento >= 0 del MC
 
         self.corners = {
             0: (1, 3),
@@ -98,19 +98,20 @@ class Ghost:
         self.x = xini
         self.y = yini
         self.size = 16
-        self.mode = self.Mode.CHASE
+        self.mode = self.Mode.RANDOM
         self.roll = self.Roll.LEADER
         if tipo == "RAND":
             self.mode = self.Mode.RANDOM
             self.roll = self.Roll.HELPER
 
+        print(f"{tipo} {self.mode} {self.roll}")
+
         self.mode_counter = 10
         self.dir_id = random.choice(self.corners[self.MC[self.YPxToMC[int(self.y)]][self.XPxToMC[int(self.x)]]])
-        # self.dir_id = 1
         self.speed = 1
         self.x_delta = 0
         self.y_delta = 0
-        self.range = 10
+        self.range = -10
 
         self.directions = {
         0: (0, 1),   # abajo
@@ -138,7 +139,7 @@ class Ghost:
 
     def dynamic_mode(self, corner):
         if corner >= 0:
-            print(f"[][][] MODE COUNTER >>>>>> {self.mode_counter}")
+            # print(f"[][][] MODE COUNTER >>>>>> {self.mode_counter}")
             if self.mode_counter > 0:
                 self.mode_counter -= 1
                 if self.mode_counter == 0:
@@ -177,14 +178,14 @@ class Ghost:
                 reverse = self.dir_id - 2
 
             xo, yo = self.directions[reverse]
-            print("----- A Star Tree -----")
+            # print("----- A Star Tree -----")
             next = self.astar(pacmanXY, 3, Ghost.Node(idx_1, idx_2, corner, Ghost.Node(idx_1 + xo, idx_2 + yo, self.MC[idx_2 + yo][idx_1 + xo], None)))
             dv = (next.idx_x - idx_1, next.idx_y - idx_2)
             self.dir_id = self.dir_ids[dv]
 
-            print(f"Next node: {next.info(0)}")
+            # print(f"Next node: {next.info(0)}")
 
-            print("----- Tree end -----")
+            # print("----- Tree end -----")
 
     def update_dir_coop_seeker(self, pacmanXY, idx_1, idx_2, corner, partner):
         if corner >= 0:
@@ -194,14 +195,14 @@ class Ghost:
                 reverse = self.dir_id - 2
 
             xo, yo = self.directions[reverse]
-            print("----- A Star Tree (COOP) -----")
+            # print("----- A Star Tree (COOP) -----")
             next = self.astar_coop(pacmanXY, 3, Ghost.Node(idx_1, idx_2, corner, Ghost.Node(idx_1 + xo, idx_2 + yo, self.MC[idx_2 + yo][idx_1 + xo], None)), partner)
             dv = (next.idx_x - idx_1, next.idx_y - idx_2)
             self.dir_id = self.dir_ids[dv]
 
-            print(f"Next node: {next.info(0)}")
+            # print(f"Next node: {next.info(0)}")
 
-            print("----- Tree end (COOP) -----")
+            # print("----- Tree end (COOP) -----")
 
     def update_delta(self):
         dx, dy = self.directions[self.dir_id]
@@ -289,7 +290,7 @@ class Ghost:
         if dist < self.range:
             finished = True
 
-        print("Node: " + current.info(0))
+        # print("Node: " + current.info(0))
         str = "Childs: "
 
         for n in neighbors:
@@ -303,9 +304,9 @@ class Ghost:
         for n in closed:
             str3 = str3 + " | " + n.info(0)
 
-        print(str)
-        print(str2)
-        print(str3)
+        # print(str)
+        # print(str2)
+        # print(str3)
 
         return finished
     
@@ -332,7 +333,7 @@ class Ghost:
         if dist < self.range:
             finished = True
 
-        print("Node: " + current.info(0))
+        # print("Node: " + current.info(0))
         str = "Childs: "
 
         for n in neighbors:
@@ -346,9 +347,9 @@ class Ghost:
         for n in closed:
             str3 = str3 + " | " + n.info(0)
 
-        print(str)
-        print(str2)
-        print(str3)
+        # print(str)
+        # print(str2)
+        # print(str3)
 
         return finished
 
@@ -369,7 +370,7 @@ class Ghost:
         # for n in self.path:
         #     str2 = str2 + " -> " + n.info(0)
         
-        print(str)
+        # print(str)
         # print(str2)
         return self.path[len(self.path) - 2]
 
@@ -378,7 +379,7 @@ class Ghost:
         open_heap = [n0]
         closed = []
 
-        print(f"Initial Node: {n0.info(0)}")
+        # print(f"Initial Node: {n0.info(0)}")
 
         while depth > 0 and open_heap:
             if self.evaluate_node(pcx, pcy, open_heap, closed):
@@ -392,7 +393,7 @@ class Ghost:
         open_heap = [n0]
         closed = []
 
-        print(f"Initial Node: {n0.info(0)}")
+        # print(f"Initial Node: {n0.info(0)}")
         step = 0
         while depth > 0 and open_heap:
             if self.evaluate_node_coop(pcx, pcy, open_heap, closed, partner, step):
@@ -466,6 +467,9 @@ class Ghost:
                 self.update_dir_coop_seeker(pacmanXY, idx_1, idx_2, corner, partner)
         elif self.mode == self.Mode.RANDOM:
             self.update_dir_random(idx_1, idx_2, corner)
+
+        if corner >= 0:
+            print(f"Master?: {master} || Mode: {"RANDOM" if self.mode == self.Mode.RANDOM else "CHASE"} || ROL: {"LEADER" if self.roll == self.Roll.LEADER else "HELPER"}")
 
 
         self.update_delta()

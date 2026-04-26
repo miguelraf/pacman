@@ -205,7 +205,7 @@ def display():
     ghosts[0].update()
     ghosts[1].update2((pc.x, pc.y))
     ghosts[2].update3((pc.x, pc.y), ghosts[3], True)
-    ghosts[3].update3((pc.x, pc.y), ghosts[2], True)
+    ghosts[3].update3((pc.x, pc.y), ghosts[2], False)
     for g in ghosts:
        g.draw()
     
