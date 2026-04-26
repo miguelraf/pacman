@@ -108,7 +108,10 @@ grid = []
 pc = Pacman(matrix, MC, XPxToMC, YPxToMC)
 #fantasmas
 ghosts = []
-ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, xMC, yMC, 114, 130, "rand"))
+ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, xMC, yMC, 114, 130, "RAND"))
+ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, xMC, yMC, 242, 130, "SEEK"))
+ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, xMC, yMC, 199, 130, "SEEKCOOP"))
+ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, xMC, yMC, 156, 130, "SEEKCOOP"))
 
 
 pygame.init()
@@ -170,9 +173,9 @@ def Init():
     #se pasan las texturas a los objetos
     pc.loadTextures(textures,1)
     ghosts[0].loadTextures(textures,2)
-    #ghosts[1].loadTextures(textures,3)
-    #ghosts[2].loadTextures(textures,4)
-    #ghosts[3].loadTextures(textures,5)
+    ghosts[1].loadTextures(textures,3)
+    ghosts[2].loadTextures(textures,4)
+    ghosts[3].loadTextures(textures,5)
     
 def PlanoTexturizado():
     #Activate textures
@@ -198,10 +201,13 @@ def display():
     PlanoTexturizado()
     pc.update()
     pc.draw()
+
+    ghosts[0].update()
+    ghosts[1].update2((pc.x, pc.y))
+    ghosts[2].update3((pc.x, pc.y), ghosts[3], True)
+    ghosts[3].update3((pc.x, pc.y), ghosts[2], True)
     for g in ghosts:
-       g.update2((pc.x, pc.y))
        g.draw()
-    #    g.update2(pc.position)
     
 done = False
 Init()

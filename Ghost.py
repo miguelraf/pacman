@@ -1,5 +1,6 @@
 import pygame
 from pygame.locals import *
+from enum import Enum
 
 # Cargamos las bibliotecas de OpenGL
 from OpenGL.GL import *
@@ -14,7 +15,57 @@ import random
 import heapq
 
 class Ghost:
-    def __init__(self, mapa, mc, x_mc, y_mc, xmc, ymc, xini, yini, tipo): #xini y yini deben de ser coordenadas de un elemento >= 0 del MC
+    class Node:
+        def __init__(self, ix, iy, cr, parent):
+            self.idx_x = ix
+            self.idx_y = iy
+            self.corner = cr
+            self.g = 0
+            self.h = 0
+            self.f = 0
+            self.p = 0
+            self.parent = parent
+
+        def info(self, n):
+            str = ""
+            if n == 0:
+                str = f"{(int(self.idx_x), int(self.idx_y), self.corner)}"
+            elif n == 1:
+                str = f"{(int(self.idx_x), int(self.idx_y), self.corner, self.g, self.h, self.f)}"
+            elif n == 2:
+                str = f"{(int(self.idx_x), int(self.idx_y), self.corner, self.g, self.h, self.f, self.pc_proximity, self.pc_prox_offset)}"
+
+            return str
+
+        def __eq__(self, other):
+            if not isinstance(other, Ghost.Node):
+                return NotImplemented
+            return self.idx_x == other.idx_x and self.idx_y == other.idx_y
+        
+        def __hash__(self):
+            return hash((self.idx_x, self.idx_y))
+        
+        def __lt__(self, other):
+            if not isinstance(other, Ghost.Node):
+                return NotImplemented
+            return self.f < other.f
+        
+        def __le__(self, other):
+            if not isinstance(other, Ghost.Node):
+                return NotImplemented
+            return self.f <= other.f
+        
+        def __gt__(self, other):
+            if not isinstance(other, Ghost.Node):
+                return NotImplemented
+            return self.f > other.f
+        
+        def __ge__(self, other):
+            if not isinstance(other, Ghost.Node):
+                return NotImplemented
+            return self.f >= other.f
+        
+    def __init__(self, mapa, mc, x_mc, y_mc, xmc, ymc, xini, yini, tipo = "RAND"): #xini y yini deben de ser coordenadas de un elemento >= 0 del MC
 
         self.corners = {
             0: (1, 3),
@@ -47,7 +98,15 @@ class Ghost:
         self.x = xini
         self.y = yini
         self.size = 16
+        self.mode = self.Mode.CHASE
+        self.roll = self.Roll.LEADER
+        if tipo == "RAND":
+            self.mode = self.Mode.RANDOM
+            self.roll = self.Roll.HELPER
+
+        self.mode_counter = 10
         self.dir_id = random.choice(self.corners[self.MC[self.YPxToMC[int(self.y)]][self.XPxToMC[int(self.x)]]])
+        # self.dir_id = 1
         self.speed = 1
         self.x_delta = 0
         self.y_delta = 0
@@ -63,59 +122,40 @@ class Ghost:
 
         self.dir_ids = {v: k for k, v in self.directions.items()}
 
-    class Node:
-        def __init__(self, ix, iy, cr, parent):
-            self.idx_x = ix
-            self.idx_y = iy
-            self.corner = cr
-            self.g = 0
-            self.h = 0
-            self.f = 0
-            self.pc_proximity = 0
-            self.pc_prox_offset = 0
-            self.parent = parent
+        self.path = []
+    
+    class Mode(Enum):
+        RANDOM = 0
+        CHASE = 1
 
-        def __eq__(self, other):
-            if not isinstance(other, Ghost.Node):
-                return NotImplemented
-            return self.idx_x == other.idx_x and self.idx_y == other.idx_y
-        
-        def __hash__(self):
-            return hash((self.idx_x, self.idx_y))
-        
-        def __lt__(self, other):
-            if not isinstance(other, Ghost.Node):
-                return NotImplemented
-            return self.f < other.f
-        
-        def __le__(self, other):
-            if not isinstance(other, Ghost.Node):
-                return NotImplemented
-            return self.f <= other.f
-        
-        def __gt__(self, other):
-            if not isinstance(other, Ghost.Node):
-                return NotImplemented
-            return self.f > other.f
-        
-        def __ge__(self, other):
-            if not isinstance(other, Ghost.Node):
-                return NotImplemented
-            return self.f >= other.f
-
-        # def calculate_prox_offset(self):
-
-        # def estimate_with_proximity(self):
+    class Roll(Enum):
+        LEADER = 0
+        HELPER = 1
         
     def loadTextures(self, texturas, id):
         self.texturas = texturas
         self.Id = id
 
-    def update_dir_random(self):
-        idx_1 = self.XPxToMC[int(self.x)]
-        idx_2 = self.YPxToMC[int(self.y)]
-        corner = self.MC[idx_2][idx_1]
+    def dynamic_mode(self, corner):
+        if corner >= 0:
+            print(f"[][][] MODE COUNTER >>>>>> {self.mode_counter}")
+            if self.mode_counter > 0:
+                self.mode_counter -= 1
+                if self.mode_counter == 0:
+                    self.mode = self.Mode.RANDOM
+                    self.mode_counter = random.randint(-8, -4)
+            elif self.mode_counter < 0:
+                self.mode_counter += 1
+                if self.mode_counter == 0:
+                    self.mode = self.Mode.CHASE
+                    self.mode_counter = random.randint(10, 25)
+    
+    def dynamic_mode_coop(self, corner, partner):
+        self.dynamic_mode(corner)
+        if corner >= 0:
+            partner.mode = self.mode
 
+    def update_dir_random(self, idx_1, idx_2, corner):
         if corner >= 0:
             options = list(self.corners[corner])
 
@@ -124,22 +164,12 @@ class Ghost:
             else:
                 reverse = self.dir_id - 2
 
-            weights = []
+            if corner != 26 and corner != 27 and reverse in options:
+                options.remove(reverse)
+                
+            self.dir_id = random.choice(options)
 
-            for d in options:
-                if d == reverse:
-                    weights.append(0.1)
-                else:
-                    weights.append(1.0)
-
-            if options:
-                self.dir_id = random.choices(options, weights=weights, k=1)[0]
-
-    def update_dir_seeker(self, pacmanXY):
-        idx_1 = self.XPxToMC[int(self.x)]
-        idx_2 = self.YPxToMC[int(self.y)]
-        corner = self.MC[idx_2][idx_1]
-
+    def update_dir_seeker(self, pacmanXY, idx_1, idx_2, corner):
         if corner >= 0:
             if self.dir_id < 2:
                 reverse = self.dir_id + 2
@@ -147,12 +177,31 @@ class Ghost:
                 reverse = self.dir_id - 2
 
             xo, yo = self.directions[reverse]
+            print("----- A Star Tree -----")
             next = self.astar(pacmanXY, 3, Ghost.Node(idx_1, idx_2, corner, Ghost.Node(idx_1 + xo, idx_2 + yo, self.MC[idx_2 + yo][idx_1 + xo], None)))
-            # print(f"next: {next.corner}")
             dv = (next.idx_x - idx_1, next.idx_y - idx_2)
-            # print(dv)
             self.dir_id = self.dir_ids[dv]
-            # print(self.directions[self.dir_id])
+
+            print(f"Next node: {next.info(0)}")
+
+            print("----- Tree end -----")
+
+    def update_dir_coop_seeker(self, pacmanXY, idx_1, idx_2, corner, partner):
+        if corner >= 0:
+            if self.dir_id < 2:
+                reverse = self.dir_id + 2
+            else:
+                reverse = self.dir_id - 2
+
+            xo, yo = self.directions[reverse]
+            print("----- A Star Tree (COOP) -----")
+            next = self.astar_coop(pacmanXY, 3, Ghost.Node(idx_1, idx_2, corner, Ghost.Node(idx_1 + xo, idx_2 + yo, self.MC[idx_2 + yo][idx_1 + xo], None)), partner)
+            dv = (next.idx_x - idx_1, next.idx_y - idx_2)
+            self.dir_id = self.dir_ids[dv]
+
+            print(f"Next node: {next.info(0)}")
+
+            print("----- Tree end (COOP) -----")
 
     def update_delta(self):
         dx, dy = self.directions[self.dir_id]
@@ -188,18 +237,41 @@ class Ghost:
             neighbor.h = abs(neighbor_coord_x - pcx) + abs(neighbor_coord_y - pcy)
             neighbor.f = neighbor.g + neighbor.h
 
+    def ponder_neighbors_coop( self, parent, neighbors, pcx, pcy, partner, step: int):
+        safe_distance = 60
+        for neighbor in neighbors:
+            parent_coord_x = self.xMC[parent.idx_x]
+            parent_coord_y = self.yMC[parent.idx_y]
+            neighbor_coord_x = self.xMC[neighbor.idx_x]
+            neighbor_coord_y = self.yMC[neighbor.idx_y]
+
+            if 2 + step <= len(partner.path):
+                partner_x_at_step = self.xMC[partner.path[len(partner.path) - (2 + step)].idx_x]
+                partner_y_at_step = self.yMC[partner.path[len(partner.path) - (2 + step)].idx_y]
+            else:
+                partner_x_at_step = 1000
+                partner_y_at_step = 1000
+
+            distance_to_partner = math.sqrt(math.pow((neighbor_coord_x - partner_x_at_step), 2) + math.pow((neighbor_coord_y - partner_y_at_step), 2))
+
+            if distance_to_partner >= safe_distance:
+                penalty = 0
+            else:
+                penalty = 4 - distance_to_partner / 15
+
+            neighbor.g = parent.g + abs(neighbor_coord_x - parent_coord_x) + abs(neighbor_coord_y - parent_coord_y)
+            neighbor.h = abs(neighbor_coord_x - pcx) + abs(neighbor_coord_y - pcy)
+            neighbor.p = (safe_distance - distance_to_partner) * penalty
+            neighbor.f = neighbor.g + neighbor.h
+
+
+
     def evaluate_node(self, pcx, pcy, open_heap: list, closed: list):
         current = heapq.heappop(open_heap)
         neighbors = self.get_neighbors(current)
-        # str = f"Neighbors of current: {current.corner} -> "
-        # for n in neighbors:
-        #     str = str + f"{n.corner} | "
 
-        # print(str)
         self.ponder_neighbors(current, neighbors, pcx, pcy)
         for n in neighbors:
-            # if n in closed or n in open_heap:
-            #     continue
             heapq.heappush(open_heap, n)
 
         dist = 1000
@@ -212,40 +284,135 @@ class Ghost:
 
         closed.append(current)
 
+        finished = False
+
         if dist < self.range:
-            return True
-        else:
-            return False
+            finished = True
+
+        print("Node: " + current.info(0))
+        str = "Childs: "
+
+        for n in neighbors:
+            str = str + " | " + n.info(0)
+
+        str2 = "Open: "
+        for n in open_heap:
+            str2 = str2 + " | " + n.info(0)
+        
+        str3 = "Closed: "
+        for n in closed:
+            str3 = str3 + " | " + n.info(0)
+
+        print(str)
+        print(str2)
+        print(str3)
+
+        return finished
+    
+    def evaluate_node_coop(self, pcx, pcy, open_heap: list, closed: list, partner, step):
+        current = heapq.heappop(open_heap)
+        neighbors = self.get_neighbors(current)
+
+        self.ponder_neighbors_coop(current, neighbors, pcx, pcy, partner, step)
+        for n in neighbors:
+            heapq.heappush(open_heap, n)
+
+        dist = 1000
+        if open_heap:
+            p = open_heap[0]
+            best_coord_x = self.xMC[p.idx_x]
+            best_coord_y = self.yMC[p.idx_y]
+
+            dist = math.sqrt(math.pow((pcx - best_coord_x), 2) + math.pow((pcy - best_coord_y), 2))
+
+        closed.append(current)
+
+        finished = False
+
+        if dist < self.range:
+            finished = True
+
+        print("Node: " + current.info(0))
+        str = "Childs: "
+
+        for n in neighbors:
+            str = str + " | " + n.info(0)
+
+        str2 = "Open: "
+        for n in open_heap:
+            str2 = str2 + " | " + n.info(0)
+        
+        str3 = "Closed: "
+        for n in closed:
+            str3 = str3 + " | " + n.info(0)
+
+        print(str)
+        print(str2)
+        print(str3)
+
+        return finished
+
+    
+    def get_next(self, node, n0):
+        self.path = []
+        recall = node
+        str = f"Reconstrtuction from {node.info(0)} to {n0.info(0)}: {node.info(0)}"
+        self.path.append(node)
+        while recall.parent != n0:
+            recall = recall.parent
+            self.path.append(recall)
+            str = str + " -> " + recall.info(0)
+
+        self.path.append(n0)
+
+        # str2 = "Resulting Path: "
+        # for n in self.path:
+        #     str2 = str2 + " -> " + n.info(0)
+        
+        print(str)
+        # print(str2)
+        return self.path[len(self.path) - 2]
 
     def astar(self, pacmanXY, depth, n0):
         pcx, pcy = pacmanXY
         open_heap = [n0]
         closed = []
 
+        print(f"Initial Node: {n0.info(0)}")
+
         while depth > 0 and open_heap:
             if self.evaluate_node(pcx, pcy, open_heap, closed):
                 break
             depth -= 1
-        
-        # print("Open:")
-        # for n in open_heap:
-        #     print(f"{n.corner} - {n.idx_x} - {n.idx_y}")
-        # print("Closed:")
-        # for n in closed:
-        #     print(f"{n.corner} - {n.idx_x} - {n.idx_y}")
 
         return self.get_next(heapq.heappop(open_heap), n0)
+    
+    def astar_coop(self, pacmanXY, depth, n0, partner):
+        pcx, pcy = pacmanXY
+        open_heap = [n0]
+        closed = []
 
-    def get_next(self, node, n0):
+        print(f"Initial Node: {n0.info(0)}")
+        step = 0
+        while depth > 0 and open_heap:
+            if self.evaluate_node_coop(pcx, pcy, open_heap, closed, partner, step):
+                break
+            step += 1
+            depth -= 1
 
-        recall = node
-        # print(f"{n0.corner} -> Reconstruct:")
-        # print(recall.corner)
-        while recall.parent != n0:
-            recall = recall.parent
-            # print(recall.corner)
-        # print("-----")
-        return recall
+        return self.get_next(heapq.heappop(open_heap), n0)
+    
+    def change_roll(self, corner, partner, pacmanXY):
+        pcx, pcy = pacmanXY
+        if corner >= 0:
+            dist_self = math.sqrt(math.pow((pcx - self.x), 2) + math.pow((pcy - self.y), 2))
+            dist_partner = math.sqrt(math.pow((pcx - partner.x), 2) + math.pow((pcy - partner.y), 2))
+            if dist_self < dist_partner:
+                self.roll = self.Roll.LEADER
+                partner.roll = self.Roll.HELPER
+            else:
+                self.roll = self.Roll.HELPER
+                partner.roll = self.Roll.LEADER
     
     def test_astar(self, pacmanXY):
         idx_1 = self.XPxToMC[int(self.x)]
@@ -260,19 +427,50 @@ class Ghost:
 
             xo, yo = self.directions[reverse]
             next = self.astar(pacmanXY, 3, Ghost.Node(idx_1, idx_2, corner, Ghost.Node(idx_1 + xo, idx_2 + yo, self.MC[idx_2 + yo][idx_1 + xo], None)))
-            # print(f"next: {next.corner}")
 
     def update(self):
-        self.update_dir_random()
+        idx_1 = self.XPxToMC[int(self.x)]
+        idx_2 = self.YPxToMC[int(self.y)]
+        corner = self.MC[idx_2][idx_1]
+
+        self.update_dir_random(idx_1, idx_2, corner)
         self.update_delta()
         self.update_move()
 
     def update2(self, pacmanXY):
-        # self.test_astar(pacmanXY)
-        self.update_dir_seeker(pacmanXY)
-        # self.update_dir_random()
+        idx_1 = self.XPxToMC[int(self.x)]
+        idx_2 = self.YPxToMC[int(self.y)]
+        corner = self.MC[idx_2][idx_1]
+        self.dynamic_mode(corner)
+
+        if self.mode == self.Mode.CHASE:
+            self.update_dir_seeker(pacmanXY, idx_1, idx_2, corner)
+        elif self.mode == self.Mode.RANDOM:
+            self.update_dir_random(idx_1, idx_2, corner)
+
         self.update_delta()
         self.update_move()
+
+    def update3(self, pacmanXY, partner, master: bool): # master should be True for the Ghost that will handle the control variables and False for the other Ghost
+        idx_1 = self.XPxToMC[int(self.x)]
+        idx_2 = self.YPxToMC[int(self.y)]
+        corner = self.MC[idx_2][idx_1]
+        if master:
+            self.dynamic_mode_coop(corner, partner)
+            self.change_roll(corner, partner, pacmanXY)
+
+        if self.mode == self.Mode.CHASE:
+            if self.roll == self.Roll.LEADER:
+                self.update_dir_seeker(pacmanXY, idx_1, idx_2, corner)
+            elif self.roll == self.Roll.HELPER:
+                self.update_dir_coop_seeker(pacmanXY, idx_1, idx_2, corner, partner)
+        elif self.mode == self.Mode.RANDOM:
+            self.update_dir_random(idx_1, idx_2, corner)
+
+
+        self.update_delta()
+        self.update_move()
+
         
     def draw(self):
         glEnable(GL_TEXTURE_2D)
