@@ -111,7 +111,7 @@ class Ghost:
         self.speed = 1
         self.x_delta = 0
         self.y_delta = 0
-        self.range = -10
+        self.range = 10
 
         self.directions = {
         0: (0, 1),   # abajo
