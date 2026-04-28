@@ -204,8 +204,8 @@ def display():
 
     ghosts[0].update()
     ghosts[1].update2((pc.x, pc.y))
-    ghosts[2].update3((pc.x, pc.y), ghosts[3], True)
-    ghosts[3].update3((pc.x, pc.y), ghosts[2], False)
+    ghosts[2].update3((pc.x, pc.y), ghosts[3], True, 60)
+    ghosts[3].update3((pc.x, pc.y), ghosts[2], False, 60)
     for g in ghosts:
        g.draw()
     

@@ -13,8 +13,11 @@ import numpy as np
 import pandas as pd
 import random
 import heapq
+import copy
 
 class Ghost:
+    MAX_COOP_PENALTY = 4
+
     class Node:
         def __init__(self, ix, iy, cr, parent):
             self.idx_x = ix
@@ -67,6 +70,7 @@ class Ghost:
         
     def __init__(self, mapa, mc, x_mc, y_mc, xmc, ymc, xini, yini, tipo): #xini y yini deben de ser coordenadas de un elemento >= 0 del MC
 
+        #Mapeo de tipo de corner a direcciones permitidas
         self.corners = {
             0: (1, 3),
             1: (0, 2),
@@ -83,36 +87,7 @@ class Ghost:
             27: (3,)
         }
 
-        #Matriz de control que almacena los IDs de las intersecciones
-        self.MC = mc
-        #Vectores que almacenan las coordenadas 
-        self.XPxToMC = x_mc
-        self.YPxToMC = y_mc
-
-        self.xMC = xmc
-        self.yMC = ymc
-        #se resplanda el mapa en terminos de pixeles
-        self.mapa = mapa
-
-        #Variables de control
-        self.x = xini
-        self.y = yini
-        self.size = 16
-        self.mode = self.Mode.RANDOM
-        self.roll = self.Roll.LEADER
-        if tipo == "RAND":
-            self.mode = self.Mode.RANDOM
-            self.roll = self.Roll.HELPER
-
-        print(f"{tipo} {self.mode} {self.roll}")
-
-        self.mode_counter = 10
-        self.dir_id = random.choice(self.corners[self.MC[self.YPxToMC[int(self.y)]][self.XPxToMC[int(self.x)]]])
-        self.speed = 1
-        self.x_delta = 0
-        self.y_delta = 0
-        self.range = 10
-
+        #Mapeo de direcciones permitidas a valores de control para el delta
         self.directions = {
         0: (0, 1),   # abajo
         1: (1, 0),   # derecha
@@ -123,7 +98,32 @@ class Ghost:
 
         self.dir_ids = {v: k for k, v in self.directions.items()}
 
+        #Matriz de control que almacena los IDs de las intersecciones
+        self.MC = mc
+        #Vectores que almacenan las coordenadas 
+        self.XPxToMC = x_mc
+        self.YPxToMC = y_mc
+
+        #Listas de coordenadas clave
+        self.xMC = xmc
+        self.yMC = ymc
+        #se resplanda el mapa en terminos de pixeles
+        self.mapa = mapa
+
+        #Variables de control
+        self.x = xini
+        self.y = yini
+        self.size = 16
+        self.mode = self.Mode.RANDOM
+        self.roll = self.Roll.HELPER
+        self.mode_counter = -5
+        self.dir_id = random.choice(self.corners[self.MC[self.YPxToMC[int(self.y)]][self.XPxToMC[int(self.x)]]])
+        self.speed = 1
+        self.x_delta = 0
+        self.y_delta = 0
+        self.range = 10
         self.path = []
+        # print(f"{tipo} {self.mode} {self.roll}")
     
     class Mode(Enum):
         RANDOM = 0
@@ -138,71 +138,66 @@ class Ghost:
         self.Id = id
 
     def dynamic_mode(self, corner):
-        if corner >= 0:
-            # print(f"[][][] MODE COUNTER >>>>>> {self.mode_counter}")
-            if self.mode_counter > 0:
-                self.mode_counter -= 1
-                if self.mode_counter == 0:
-                    self.mode = self.Mode.RANDOM
-                    self.mode_counter = random.randint(-8, -4)
-            elif self.mode_counter < 0:
-                self.mode_counter += 1
-                if self.mode_counter == 0:
-                    self.mode = self.Mode.CHASE
-                    self.mode_counter = random.randint(10, 25)
+        # print(f"[][][] MODE COUNTER >>>>>> {self.mode_counter}")
+        if self.mode_counter > 0:
+            self.mode_counter -= 1
+            if self.mode_counter == 0:
+                self.mode = self.Mode.RANDOM
+                self.mode_counter = random.randint(-8, -4)
+        elif self.mode_counter < 0:
+            self.mode_counter += 1
+            if self.mode_counter == 0:
+                self.mode = self.Mode.CHASE
+                self.mode_counter = random.randint(10, 25)
     
     def dynamic_mode_coop(self, corner, partner):
         self.dynamic_mode(corner)
-        if corner >= 0:
-            partner.mode = self.mode
+        partner.mode = self.mode
 
-    def update_dir_random(self, idx_1, idx_2, corner):
-        if corner >= 0:
-            options = list(self.corners[corner])
+    def update_dir_random(self, corner):
+        options = list(self.corners[corner])
 
-            if self.dir_id < 2:
-                reverse = self.dir_id + 2
-            else:
-                reverse = self.dir_id - 2
+        if self.dir_id < 2:
+            reverse = self.dir_id + 2
+        else:
+            reverse = self.dir_id - 2
 
-            if corner != 26 and corner != 27 and reverse in options:
-                options.remove(reverse)
+        if corner != 26 and corner != 27 and reverse in options:
+            options.remove(reverse)
                 
-            self.dir_id = random.choice(options)
+        self.dir_id = random.choice(options)
 
     def update_dir_seeker(self, pacmanXY, idx_1, idx_2, corner):
-        if corner >= 0:
-            if self.dir_id < 2:
-                reverse = self.dir_id + 2
-            else:
-                reverse = self.dir_id - 2
+        if self.dir_id < 2:
+            reverse = self.dir_id + 2
+        else:
+            reverse = self.dir_id - 2
 
-            xo, yo = self.directions[reverse]
-            # print("----- A Star Tree -----")
-            next = self.astar(pacmanXY, 3, Ghost.Node(idx_1, idx_2, corner, Ghost.Node(idx_1 + xo, idx_2 + yo, self.MC[idx_2 + yo][idx_1 + xo], None)))
-            dv = (next.idx_x - idx_1, next.idx_y - idx_2)
-            self.dir_id = self.dir_ids[dv]
+        xo, yo = self.directions[reverse]
+        # print("----- A Star Tree -----")
+        next = self.astar(pacmanXY, 3, Ghost.Node(idx_1, idx_2, corner, Ghost.Node(idx_1 + xo, idx_2 + yo, self.MC[idx_2 + yo][idx_1 + xo], None)))
+        dv = (next.idx_x - idx_1, next.idx_y - idx_2)
+        self.dir_id = self.dir_ids[dv]
 
-            # print(f"Next node: {next.info(0)}")
+        # print(f"Next node: {next.info(0)}")
 
-            # print("----- Tree end -----")
+        # print("----- Tree end -----")
 
-    def update_dir_coop_seeker(self, pacmanXY, idx_1, idx_2, corner, partner):
-        if corner >= 0:
-            if self.dir_id < 2:
-                reverse = self.dir_id + 2
-            else:
-                reverse = self.dir_id - 2
+    def update_dir_coop_seeker(self, pacmanXY, idx_1, idx_2, corner, partner, safe_distance):
+        if self.dir_id < 2:
+            reverse = self.dir_id + 2
+        else:
+            reverse = self.dir_id - 2
 
-            xo, yo = self.directions[reverse]
-            # print("----- A Star Tree (COOP) -----")
-            next = self.astar_coop(pacmanXY, 3, Ghost.Node(idx_1, idx_2, corner, Ghost.Node(idx_1 + xo, idx_2 + yo, self.MC[idx_2 + yo][idx_1 + xo], None)), partner)
-            dv = (next.idx_x - idx_1, next.idx_y - idx_2)
-            self.dir_id = self.dir_ids[dv]
+        xo, yo = self.directions[reverse]
+        # print("----- A Star Tree (COOP) -----")
+        next = self.astar_coop(pacmanXY, 3, Ghost.Node(idx_1, idx_2, corner, Ghost.Node(idx_1 + xo, idx_2 + yo, self.MC[idx_2 + yo][idx_1 + xo], None)), partner, safe_distance)
+        dv = (next.idx_x - idx_1, next.idx_y - idx_2)
+        self.dir_id = self.dir_ids[dv]
 
-            # print(f"Next node: {next.info(0)}")
+        # print(f"Next node: {next.info(0)}")
 
-            # print("----- Tree end (COOP) -----")
+        # print("----- Tree end (COOP) -----")
 
     def update_delta(self):
         dx, dy = self.directions[self.dir_id]
@@ -214,17 +209,15 @@ class Ghost:
         self.x += self.x_delta
         self.y += self.y_delta
 
-    def get_neighbors(self, node): # TODO: Change idx_corner to neighbor type
+    def get_neighbors(self, node):
         dirs = self.corners[node.corner]
-
         neighbors = []
-
         for d in dirs:
             xo, yo = self.directions[d]
-            if node.corner != 27 and node.corner != 26 and Ghost.Node(node.idx_x + xo, node.idx_y + yo, self.MC[node.idx_y + yo][node.idx_x + xo], None) == node.parent:
+            pn = Ghost.Node(node.idx_x + xo, node.idx_y + yo, self.MC[node.idx_y + yo][node.idx_x + xo], node)
+            if node.corner != 27 and node.corner != 26 and pn == node.parent:
                 continue
-            neighbors.append(Ghost.Node(node.idx_x + xo, node.idx_y + yo, self.MC[node.idx_y + yo][node.idx_x + xo], node))
-
+            neighbors.append(pn)
         return neighbors
     
     def ponder_neighbors(self, parent, neighbors, pcx, pcy):
@@ -233,13 +226,19 @@ class Ghost:
             parent_coord_y = self.yMC[parent.idx_y]
             neighbor_coord_x = self.xMC[neighbor.idx_x]
             neighbor_coord_y = self.yMC[neighbor.idx_y]
-
             neighbor.g = parent.g + abs(neighbor_coord_x - parent_coord_x) + abs(neighbor_coord_y - parent_coord_y)
             neighbor.h = abs(neighbor_coord_x - pcx) + abs(neighbor_coord_y - pcy)
             neighbor.f = neighbor.g + neighbor.h
 
-    def ponder_neighbors_coop( self, parent, neighbors, pcx, pcy, partner, step: int):
-        safe_distance = 60
+    @staticmethod
+    def inverse_linear_mapping(value, max_penalty, max_safe_distance):
+        if max_safe_distance <= 0:
+            return 0
+
+        normalized_value = min(max(value / max_safe_distance, 0), 1)
+        return max_penalty * (1 - normalized_value)
+
+    def ponder_neighbors_coop( self, parent, neighbors, pcx, pcy, partner, step: int, safe_distance):
         for neighbor in neighbors:
             parent_coord_x = self.xMC[parent.idx_x]
             parent_coord_y = self.yMC[parent.idx_y]
@@ -254,17 +253,12 @@ class Ghost:
                 partner_y_at_step = 1000
 
             distance_to_partner = math.sqrt(math.pow((neighbor_coord_x - partner_x_at_step), 2) + math.pow((neighbor_coord_y - partner_y_at_step), 2))
-
-            if distance_to_partner >= safe_distance:
-                penalty = 0
-            else:
-                penalty = 4 - distance_to_partner / 15
+            penalty = self.inverse_linear_mapping(distance_to_partner, self.MAX_COOP_PENALTY, safe_distance)
 
             neighbor.g = parent.g + abs(neighbor_coord_x - parent_coord_x) + abs(neighbor_coord_y - parent_coord_y)
             neighbor.h = abs(neighbor_coord_x - pcx) + abs(neighbor_coord_y - pcy)
             neighbor.p = (safe_distance - distance_to_partner) * penalty
-            neighbor.f = neighbor.g + neighbor.h
-
+            neighbor.f = neighbor.g + neighbor.p + neighbor.h
 
 
     def evaluate_node(self, pcx, pcy, open_heap: list, closed: list):
@@ -310,11 +304,11 @@ class Ghost:
 
         return finished
     
-    def evaluate_node_coop(self, pcx, pcy, open_heap: list, closed: list, partner, step):
+    def evaluate_node_coop(self, pcx, pcy, open_heap: list, closed: list, partner, step, safe_distance):
         current = heapq.heappop(open_heap)
         neighbors = self.get_neighbors(current)
 
-        self.ponder_neighbors_coop(current, neighbors, pcx, pcy, partner, step)
+        self.ponder_neighbors_coop(current, neighbors, pcx, pcy, partner, step, safe_distance)
         for n in neighbors:
             heapq.heappush(open_heap, n)
 
@@ -388,7 +382,7 @@ class Ghost:
 
         return self.get_next(heapq.heappop(open_heap), n0)
     
-    def astar_coop(self, pacmanXY, depth, n0, partner):
+    def astar_coop(self, pacmanXY, depth, n0, partner, safe_distance):
         pcx, pcy = pacmanXY
         open_heap = [n0]
         closed = []
@@ -396,7 +390,7 @@ class Ghost:
         # print(f"Initial Node: {n0.info(0)}")
         step = 0
         while depth > 0 and open_heap:
-            if self.evaluate_node_coop(pcx, pcy, open_heap, closed, partner, step):
+            if self.evaluate_node_coop(pcx, pcy, open_heap, closed, partner, step, safe_distance):
                 break
             step += 1
             depth -= 1
@@ -434,42 +428,50 @@ class Ghost:
         idx_2 = self.YPxToMC[int(self.y)]
         corner = self.MC[idx_2][idx_1]
 
-        self.update_dir_random(idx_1, idx_2, corner)
-        self.update_delta()
+        if corner >= 0:
+            self.update_dir_random(corner)
+            self.update_delta()
+        
         self.update_move()
 
     def update2(self, pacmanXY):
         idx_1 = self.XPxToMC[int(self.x)]
         idx_2 = self.YPxToMC[int(self.y)]
         corner = self.MC[idx_2][idx_1]
-        self.dynamic_mode(corner)
 
-        if self.mode == self.Mode.CHASE:
-            self.update_dir_seeker(pacmanXY, idx_1, idx_2, corner)
-        elif self.mode == self.Mode.RANDOM:
-            self.update_dir_random(idx_1, idx_2, corner)
+        if corner >= 0:
 
-        self.update_delta()
+            self.dynamic_mode(corner)
+
+            if self.mode == self.Mode.CHASE:
+                self.update_dir_seeker(pacmanXY, idx_1, idx_2, corner)
+            elif self.mode == self.Mode.RANDOM:
+                self.update_dir_random(corner)
+
+            self.update_delta()
+
         self.update_move()
 
-    def update3(self, pacmanXY, partner, master: bool): # master should be True for the Ghost that will handle the control variables and False for the other Ghost
+    def update3(self, pacmanXY, partner, master: bool, safe_distance): # master should be True for the Ghost that will handle the control variables and False for the other Ghost
         idx_1 = self.XPxToMC[int(self.x)]
         idx_2 = self.YPxToMC[int(self.y)]
         corner = self.MC[idx_2][idx_1]
-        if master:
-            self.dynamic_mode_coop(corner, partner)
-            self.change_roll(corner, partner, pacmanXY)
-
-        if self.mode == self.Mode.CHASE:
-            if self.roll == self.Roll.LEADER:
-                self.update_dir_seeker(pacmanXY, idx_1, idx_2, corner)
-            elif self.roll == self.Roll.HELPER:
-                self.update_dir_coop_seeker(pacmanXY, idx_1, idx_2, corner, partner)
-        elif self.mode == self.Mode.RANDOM:
-            self.update_dir_random(idx_1, idx_2, corner)
 
         if corner >= 0:
-            print(f"Master?: {master} || Mode: {"RANDOM" if self.mode == self.Mode.RANDOM else "CHASE"} || ROL: {"LEADER" if self.roll == self.Roll.LEADER else "HELPER"}")
+            if master:
+                self.dynamic_mode_coop(corner, partner)
+                self.change_roll(corner, partner, pacmanXY)
+
+            if self.mode == self.Mode.CHASE:
+                if self.roll == self.Roll.LEADER:
+                    self.update_dir_seeker(pacmanXY, idx_1, idx_2, corner)
+                elif self.roll == self.Roll.HELPER:
+                    self.update_dir_coop_seeker(pacmanXY, idx_1, idx_2, corner, partner, safe_distance)
+            elif self.mode == self.Mode.RANDOM:
+                self.update_dir_random(corner)
+
+            
+            # print(f"Master?: {master} || Mode: {"RANDOM" if self.mode == self.Mode.RANDOM else "CHASE"} || ROL: {"LEADER" if self.roll == self.Roll.LEADER else "HELPER"}")
 
 
         self.update_delta()
